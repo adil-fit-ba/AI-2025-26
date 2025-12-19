@@ -289,6 +289,73 @@ public sealed class VacuumQLearningPolicy : IPolicy<VacuumState, VacuumAction>
 
     public double Epsilon { get; set; }
 
+    /*
+     * KONSTRUKTOR: Vacuum Q-Learning Policy (epsilon-greedy)
+     * ─────────────────────────────────────────────────────
+     *
+     * Ovaj konstruktor inicijalizuje epsilon-greedy politiku
+     * koja kontroliše ODNOS ISTRAŽIVANJA i ISKORIŠTAVANJA.
+     *
+     *   • epsilon (ε) – stopa istraživanja
+     *
+     * Epsilon određuje koliko često agent bira NASUMIČNU akciju
+     * umjesto trenutno najbolje poznate akcije.
+     *
+     * ─────────────────────────────────────────────────────
+     * ε (EPSILON) – ISTRAŽIVANJE vs ISKORIŠTAVANJE
+     * ─────────────────────────────────────────────────────
+     *
+     * Tipične vrijednosti:
+     *   • Donja granica: 0.0
+     *   • Preporučeno:   0.05 – 0.3 (tokom treninga)
+     *   • Gornja granica: 1.0
+     *
+     * Primjeri iz života:
+     *
+     *   • ε = 0.0  (bez istraživanja)
+     *     → osoba uvijek radi ono što trenutno misli da je najbolje
+     *     → nikad ne isprobava nove opcije
+     *     → lako zapadne u lošu rutinu
+     *
+     *     U agentu:
+     *       • nema istraživanja
+     *       • agent može ostati u lokalnom optimumu
+     *
+     *   • ε ≈ 0.1 – 0.2  (uravnoteženo ponašanje)
+     *     → osoba uglavnom koristi provjerene metode
+     *     → ali povremeno isproba nešto novo
+     *
+     *     U agentu:
+     *       • dobar balans između učenja i stabilnosti
+     *       • najčešći izbor u praksi
+     *
+     *   • ε = 1.0  (potpuno nasumično ponašanje)
+     *     → osoba svaki put radi nešto drugo
+     *     → nikad ne gradi rutinu
+     *     → nema dugoročnog plana
+     *
+     *     U agentu:
+     *       • ponašanje je čisto nasumično
+     *       • nema konvergencije
+     *
+     * Zaključak:
+     *   Epsilon kontroliše KOLIKO je agent radoznao.
+     *
+     * ─────────────────────────────────────────────────────
+     * PRAKTIČNE NAPOMENE
+     * ─────────────────────────────────────────────────────
+     *
+     *  • Tokom treninga:
+     *      epsilon je veći (npr. 0.2 – 0.3)
+     *
+     *  • Tokom eksploatacije (deployment):
+     *      epsilon se smanjuje (npr. 0.0 – 0.05)
+     *
+     *  • Česta praksa:
+     *      epsilon decay – postepeno smanjivanje epsilon-a
+     *
+     * ─────────────────────────────────────────────────────
+     */
     public VacuumQLearningPolicy(double epsilon = 0.1)
     {
         Epsilon = epsilon;
@@ -365,6 +432,100 @@ public sealed class VacuumQLearningUpdater : ILearningComponent<VacuumExperience
     private readonly double _alpha;
     private readonly double _gamma;
 
+        /*
+     * KONSTRUKTOR: Vacuum Q-Learning Updater
+     * ──────────────────────────────────────
+     *
+     * Ovaj konstruktor inicijalizuje parametre učenja za Q-learning agenta.
+     * Dva najvažnija parametra su:
+     *
+     *   • alpha (α)  – stopa učenja
+     *   • gamma (γ)  – faktor diskontiranja budućih nagrada
+     *
+     * Ovi parametri direktno utiču na to:
+     *   – koliko brzo agent mijenja svoje znanje
+     *   – koliko "razmišlja unaprijed"
+     *
+     * ──────────────────────────────────────
+     * α (ALPHA) – STOPA UČENJA
+     * ──────────────────────────────────────
+     * Alpha određuje KOLIKO NOVO ISKUSTVO utiče na postojeće znanje.
+     *
+     * Tipične vrijednosti:
+     *   • Donja granica: 0.01 – 0.05
+     *   • Preporučeno:   0.05 – 0.3
+     *   • Gornja granica: 0.5 (rijetko više)
+     *
+     * Primjeri iz života:
+     *
+     *   • NIZAK alpha (npr. 0.01)
+     *     → osoba koja sporo mijenja navike
+     *     → treba joj mnogo ponavljanja da nauči
+     *     → stabilna, ali spora adaptacija
+     *
+     *     U agentu:
+     *       • učenje je stabilno
+     *       • ali može trajati veoma dugo
+     *
+     *   • VISOK alpha (npr. 0.5 – 1.0)
+     *     → osoba koja se odmah predomisli nakon jedne greške
+     *     → lako "preuči" pogrešnu lekciju
+     *
+     *     U agentu:
+     *       • učenje je nestabilno
+     *       • Q-vrijednosti osciluju
+     *       • agent može "zaboraviti" dobro znanje
+     *
+     * Zaključak:
+     *   Alpha je kompromis između stabilnosti i brzine učenja.
+     *
+     * ──────────────────────────────────────
+     * γ (GAMMA) – FAKTOR DISKONTIRANJA
+     * ──────────────────────────────────────
+     * Gamma određuje KOLIKO agent cijeni BUDUĆE nagrade
+     * u odnosu na trenutnu nagradu.
+     *
+     * Tipične vrijednosti:
+     *   • Donja granica: 0.0 – 0.3
+     *   • Preporučeno:   0.9 – 0.99
+     *   • Gornja granica: 1.0 (teorijski maksimum)
+     *
+     * Primjeri iz života:
+     *
+     *   • NIZAK gamma (npr. 0.1)
+     *     → "kratkovida" osoba
+     *     → bira brzu nagradu sada
+     *     → ne planira dugoročno
+     *
+     *     U agentu:
+     *       • fokus na trenutnu nagradu
+     *       • često bira suboptimalne puteve
+     *
+     *   • VISOK gamma (npr. 0.95 – 0.99)
+     *     → osoba koja planira unaprijed
+     *     → spremna je da trpi mali gubitak sada
+     *       radi veće koristi kasnije
+     *
+     *     U agentu:
+     *       • uči dugoročne strategije
+     *       • idealno za navigaciju i planiranje
+     *
+     * Zaključak:
+     *   Gamma kontroliše koliko daleko u budućnost agent "gleda".
+     *
+     * ──────────────────────────────────────
+     * PRAKTIČNA PREPORUKA ZA VACUUM AGENTA
+     * ──────────────────────────────────────
+     *   • alpha ≈ 0.1  → umjereno, stabilno učenje
+     *   • gamma ≈ 0.9  → agent planira više koraka unaprijed
+     *
+     * Ove vrijednosti daju dobar balans između:
+     *   • brzine učenja
+     *   • stabilnosti
+     *   • dugoročnog ponašanja
+     *
+     * ──────────────────────────────────────
+     */
     public VacuumQLearningUpdater(VacuumQLearningPolicy policy, double alpha = 0.1, double gamma = 0.9)
     {
         _policy = policy;

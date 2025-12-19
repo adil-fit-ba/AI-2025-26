@@ -72,11 +72,34 @@ public sealed class SpamLabelOracle : IActuator<EmailClass, EmailClass>
  * 
  * Oba koriste SHARED STATE (currentEmail) da budu sinkronizovani.
  * 
- * U realnom sistemu, oracle bi bio:
- *   • Korisnik koji klikne "Mark as Spam"
- *   • Moderator koji pregleda email
- *   • Lookup u labeliranom datasetu
+ *
+ * NAPOMENA (termin "Oracle"):
+ * ──────────────────────────
+ * Riječ "oracle" se u AI i Machine Learning literaturi koristi
+ * za komponentu OKOLINE koja zna TAČAN ODGOVOR (ground truth).
+ *
+ * Oracle:
+ *   • NE donosi odluke
+ *   • NE uči
+ *   • NE predviđa
+ *
+ * Njegina jedina uloga je da agentu kaže:
+ *   "Ovo je stvarna, ispravna vrijednost."
+ *
+ * U supervised learningu, oracle je neophodan
+ * jer omogućava poređenje:
+ *   predicted vs actual
+ *
+ * U realnim sistemima, oracle može biti:
+ *   • korisnik (klikne "spam / not spam")
+ *   • moderator
+ *   • doktor (u medicinskim sistemima)
+ *   • historijski labelirani podaci
+ *
+ * U ovom demo-u, oracle je simuliran klasom
+ * koja vraća tačnu labelu za trenutno opaženi email.
  */
+
 public sealed class DynamicSpamOracle : IActuator<EmailClass, EmailClass>
 {
     private readonly Func<EmailClass> _labelProvider;
