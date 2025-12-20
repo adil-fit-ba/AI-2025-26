@@ -232,7 +232,9 @@ public static class CustomerSupportDemo
          *
          *     To je industrijski standard: agent radi autonomno kada je siguran,
          *     a eskalira kada postoji rizik.
-         *
+         *     Eskalacija znači da agent NE donosi odluku,
+         *     nego prosljeđuje slučaj čovjeku zbog rizika ili niske sigurnosti.
+         *     
          *  3) AKCIJA / OKOLINA (Act)
          *     - dynamicSupervisor (DynamicSupervisorOracle)
          *     U realnom sistemu, akcija bi bila:
