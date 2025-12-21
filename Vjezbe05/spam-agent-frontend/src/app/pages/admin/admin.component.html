@@ -1,0 +1,282 @@
+<div class="h-screen flex flex-col bg-gray-900 overflow-y-auto">
+    <!-- Header -->
+    <header class="bg-gray-800 border-b border-gray-700 px-6 py-4 sticky top-0 z-10">
+        <div class="flex items-center justify-between">
+            <div>
+                <h1 class="text-xl font-bold text-white">⚙️ Admin Panel</h1>
+                <p class="text-sm text-gray-400 mt-1">Model training, settings, and system management</p>
+            </div>
+            <button
+                    class="btn btn-secondary"
+                    (click)="refreshAll()"
+                    [disabled]="loading"
+            >
+                <svg class="w-4 h-4" [class.animate-spin]="loading" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                          d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <div class="flex-1 p-6">
+        <div class="max-w-6xl mx-auto space-y-6">
+
+            <!-- Quick Actions -->
+            <div class="grid grid-cols-4 gap-4">
+                <button
+                        class="bg-gray-800 rounded-lg p-4 text-left hover:bg-gray-750 transition-colors"
+                        (click)="importDataset()"
+                        [disabled]="importing"
+                >
+                    <div class="text-2xl mb-2">📥</div>
+                    <div class="font-semibold text-white">{{ importing ? 'Importing...' : 'Import Dataset' }}</div>
+                    <div class="text-sm text-gray-400">Load UCI SMS data</div>
+                </button>
+
+                <button
+                        class="bg-gray-800 rounded-lg p-4 text-left hover:bg-gray-750 transition-colors"
+                        (click)="enqueueMessages()"
+                        [disabled]="enqueueing"
+                >
+                    <div class="text-2xl mb-2">📬</div>
+                    <div class="font-semibold text-white">{{ enqueueing ? 'Adding...' : 'Enqueue 10' }}</div>
+                    <div class="text-sm text-gray-400">Add validation messages</div>
+                </button>
+
+                <button
+                        class="bg-gray-800 rounded-lg p-4 text-left hover:bg-gray-750 transition-colors"
+                        (click)="toggleSimulator()"
+                        [disabled]="!simulator?.available"
+                >
+                    <div class="text-2xl mb-2">🎮</div>
+                    <div class="font-semibold text-white">
+                        {{ simulator?.enabled ? 'Stop' : 'Start' }} Simulator
+                    </div>
+                    <div class="text-sm text-gray-400">
+                        {{ simulator?.enabled ? 'Running' : 'Stopped' }}
+                    </div>
+                </button>
+
+                <button
+                        class="bg-gray-800 rounded-lg p-4 text-left hover:bg-gray-750 transition-colors"
+                        (click)="forceRetrain()"
+                        [disabled]="training"
+                >
+                    <div class="text-2xl mb-2">🔄</div>
+                    <div class="font-semibold text-white">{{ training ? 'Training...' : 'Force Retrain' }}</div>
+                    <div class="text-sm text-gray-400">Trigger immediate retrain</div>
+                </button>
+            </div>
+
+            <div class="grid grid-cols-2 gap-6">
+                <!-- Training Panel -->
+                <div class="bg-gray-800 rounded-xl p-6">
+                    <h2 class="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+                        <span>🎯</span> Train New Model
+                    </h2>
+
+                    <div class="space-y-4">
+                        <!-- Template Selection -->
+                        <div>
+                            <label class="block text-sm text-gray-400 mb-2">Training Template</label>
+                            <div class="grid grid-cols-3 gap-2">
+                                <button
+                                        *ngFor="let t of templates"
+                                        class="px-4 py-3 rounded-lg border-2 transition-all"
+                                        [class.border-indigo-500]="selectedTemplate === t.value"
+                                        [class.bg-indigo-500-20]="selectedTemplate === t.value"
+                                [class.border-gray-600]="selectedTemplate !== t.value"
+                                [class.bg-gray-700]="selectedTemplate !== t.value"
+                                (click)="selectedTemplate = t.value"
+                                >
+                                <div class="font-semibold text-white">{{ t.label }}</div>
+                                <div class="text-xs text-gray-400">~{{ t.samples }} samples</div>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Auto Activate -->
+                        <div class="flex items-center justify-between">
+                            <span class="text-gray-300">Auto-activate after training</span>
+                            <label class="relative inline-flex items-center cursor-pointer">
+                                <input type="checkbox" [(ngModel)]="autoActivate" class="sr-only peer">
+                                <div class="w-11 h-6 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+                            </label>
+                        </div>
+
+                        <!-- Train Button -->
+                        <button
+                                class="w-full btn btn-primary py-3"
+                                (click)="trainModel()"
+                                [disabled]="training"
+                        >
+                            {{ training ? 'Training...' : 'Start Training' }}
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Settings Panel -->
+                <div class="bg-gray-800 rounded-xl p-6">
+                    <h2 class="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+                        <span>⚙️</span> Settings
+                    </h2>
+
+                    <div class="space-y-4" *ngIf="settings">
+                        <!-- Thresholds -->
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm text-gray-400 mb-1">T_ALLOW (Ham threshold)</label>
+                                <input
+                                        type="number"
+                                        [(ngModel)]="settings.thresholdAllow"
+                                        min="0" max="1" step="0.05"
+                                        class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white"
+                                />
+                            </div>
+                            <div>
+                                <label class="block text-sm text-gray-400 mb-1">T_BLOCK (Spam threshold)</label>
+                                <input
+                                        type="number"
+                                        [(ngModel)]="settings.thresholdBlock"
+                                        min="0" max="1" step="0.05"
+                                        class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white"
+                                />
+                            </div>
+                        </div>
+
+                        <!-- Retrain Threshold -->
+                        <div>
+                            <label class="block text-sm text-gray-400 mb-1">Retrain Gold Threshold</label>
+                            <input
+                                    type="number"
+                                    [(ngModel)]="settings.retrainGoldThreshold"
+                                    min="10" step="10"
+                                    class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white"
+                            />
+                        </div>
+
+                        <!-- Auto Retrain Toggle -->
+                        <div class="flex items-center justify-between">
+                            <span class="text-gray-300">Auto-retrain when threshold reached</span>
+                            <label class="relative inline-flex items-center cursor-pointer">
+                                <input type="checkbox" [(ngModel)]="settings.autoRetrainEnabled" class="sr-only peer">
+                                <div class="w-11 h-6 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-600"></div>
+                            </label>
+                        </div>
+
+                        <!-- Save Button -->
+                        <button
+                                class="w-full btn btn-secondary"
+                                (click)="saveSettings()"
+                                [disabled]="savingSettings"
+                        >
+                            {{ savingSettings ? 'Saving...' : 'Save Settings' }}
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Models Table -->
+            <div class="bg-gray-800 rounded-xl p-6">
+                <h2 class="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+                    <span>📊</span> Model Versions
+                </h2>
+
+                <div class="overflow-x-auto">
+                    <table class="w-full">
+                        <thead>
+                        <tr class="text-left text-gray-400 text-sm border-b border-gray-700">
+                            <th class="pb-3 pr-4">Version</th>
+                            <th class="pb-3 pr-4">Template</th>
+                            <th class="pb-3 pr-4">Train Size</th>
+                            <th class="pb-3 pr-4">Gold</th>
+                            <th class="pb-3 pr-4">Accuracy</th>
+                            <th class="pb-3 pr-4">Precision</th>
+                            <th class="pb-3 pr-4">Recall</th>
+                            <th class="pb-3 pr-4">F1</th>
+                            <th class="pb-3 pr-4">Created</th>
+                            <th class="pb-3">Actions</th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        <tr
+                                *ngFor="let model of models"
+                                class="border-b border-gray-700/50"
+                                [class.bg-green-500-10]="model.isActive"
+                        >
+                        <td class="py-3 pr-4">
+                            <span class="font-mono font-semibold">v{{ model.version }}</span>
+                            <span *ngIf="model.isActive" class="ml-2 badge badge-ham">ACTIVE</span>
+                        </td>
+                        <td class="py-3 pr-4 text-gray-400">{{ model.trainTemplate }}</td>
+                        <td class="py-3 pr-4 font-mono">{{ model.trainSetSize }}</td>
+                        <td class="py-3 pr-4 font-mono text-yellow-400">{{ model.goldIncludedCount }}</td>
+                        <td class="py-3 pr-4 font-mono text-blue-400">{{ (model.metrics.accuracy * 100).toFixed(1) }}%</td>
+                        <td class="py-3 pr-4 font-mono text-green-400">{{ (model.metrics.precision * 100).toFixed(1) }}%</td>
+                        <td class="py-3 pr-4 font-mono text-yellow-400">{{ (model.metrics.recall * 100).toFixed(1) }}%</td>
+                        <td class="py-3 pr-4 font-mono text-purple-400">{{ (model.metrics.f1 * 100).toFixed(1) }}%</td>
+                        <td class="py-3 pr-4 text-sm text-gray-400">{{ model.createdAtUtc | date:'short' }}</td>
+                        <td class="py-3">
+                            <button
+                                    *ngIf="!model.isActive"
+                                    class="btn btn-secondary text-sm py-1 px-3"
+                                    (click)="activateModel(model.version)"
+                            >
+                                Activate
+                            </button>
+                        </td>
+                        </tr>
+                        </tbody>
+                    </table>
+
+                    <div *ngIf="models.length === 0" class="text-center py-8 text-gray-500">
+                        No models trained yet. Train your first model above!
+                    </div>
+                </div>
+            </div>
+
+            <!-- System Status -->
+            <div class="bg-gray-800 rounded-xl p-6" *ngIf="systemStatus">
+                <h2 class="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+                    <span>📈</span> System Status
+                </h2>
+
+                <div class="grid grid-cols-4 gap-4">
+                    <div class="bg-gray-700/50 rounded-lg p-4 text-center">
+                        <div class="text-3xl font-bold text-white">{{ systemStatus.datasetStats.totalMessages }}</div>
+                        <div class="text-sm text-gray-400">Total Messages</div>
+                    </div>
+                    <div class="bg-gray-700/50 rounded-lg p-4 text-center">
+                        <div class="text-3xl font-bold text-indigo-400">{{ systemStatus.datasetStats.uciMessages }}</div>
+                        <div class="text-sm text-gray-400">UCI Dataset</div>
+                    </div>
+                    <div class="bg-gray-700/50 rounded-lg p-4 text-center">
+                        <div class="text-3xl font-bold text-green-400">{{ systemStatus.datasetStats.trainPoolCount }}</div>
+                        <div class="text-sm text-gray-400">Train Pool</div>
+                    </div>
+                    <div class="bg-gray-700/50 rounded-lg p-4 text-center">
+                        <div class="text-3xl font-bold text-yellow-400">{{ systemStatus.datasetStats.totalGoldLabels }}</div>
+                        <div class="text-sm text-gray-400">Gold Labels</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notifications -->
+    <div class="fixed bottom-4 right-4 space-y-2 z-50">
+        <div
+                *ngFor="let toast of toasts"
+                class="px-4 py-3 rounded-lg shadow-lg animate-slide-in-right"
+                [ngClass]="{
+            'bg-green-600': toast.type === 'success',
+            'bg-red-600': toast.type === 'error',
+            'bg-blue-600': toast.type === 'info'
+          }"
+        >
+            <p class="text-white text-sm">{{ toast.message }}</p>
+        </div>
+    </div>
+</div>

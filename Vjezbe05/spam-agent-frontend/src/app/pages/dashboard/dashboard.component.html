@@ -1,0 +1,183 @@
+
+<div class="h-screen flex flex-col bg-gray-900">
+    <!-- Header -->
+    <header class="bg-gray-800 border-b border-gray-700 px-6 py-4">
+        <div class="flex items-center justify-between">
+            <div class="flex items-center gap-4">
+                <h1 class="text-xl font-bold text-white">
+                    🤖 Spam Agent
+                    <span class="text-sm font-normal text-gray-400 ml-2">Live Demo</span>
+                </h1>
+
+                <!-- Connection Status -->
+                <div class="flex items-center gap-2 text-sm">
+              <span
+                      class="w-2 h-2 rounded-full"
+                      [class.bg-green-400]="connectionStatus === 'connected'"
+                      [class.bg-yellow-400]="connectionStatus === 'connecting' || connectionStatus === 'reconnecting'"
+                      [class.bg-red-400]="connectionStatus === 'disconnected'"
+                      [class.animate-pulse]="connectionStatus === 'connecting' || connectionStatus === 'reconnecting'"
+              ></span>
+                    <span
+                            [class.text-green-400]="connectionStatus === 'connected'"
+                            [class.text-yellow-400]="connectionStatus === 'connecting' || connectionStatus === 'reconnecting'"
+                            [class.text-red-400]="connectionStatus === 'disconnected'"
+                    >
+                {{ connectionStatus }}
+              </span>
+                </div>
+            </div>
+
+            <div class="flex items-center gap-3">
+                <!-- Enqueue Button -->
+                <button
+                        class="btn btn-primary flex items-center gap-2"
+                        (click)="enqueueMessages()"
+                        [disabled]="enqueueing"
+                >
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                    </svg>
+                    {{ enqueueing ? 'Adding...' : 'Add Messages' }}
+                </button>
+
+                <!-- Refresh Button -->
+                <button
+                        class="btn btn-secondary"
+                        (click)="refreshAll()"
+                        [disabled]="loading"
+                >
+                    <svg class="w-4 h-4" [class.animate-spin]="loading" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                              d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <div class="flex-1 flex overflow-hidden p-4 gap-4">
+        <!-- Message Columns -->
+        <div class="flex-1 grid grid-cols-4 gap-4 min-w-0">
+            <!-- Queued Column -->
+            <div class="column-container border-t-4 border-indigo-500">
+                <div class="column-header">
+                    <div class="column-title text-indigo-400">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                  d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                        </svg>
+                        Incoming
+                    </div>
+                    <span class="column-count text-indigo-400">{{ (queuedMessages$ | async)?.length || 0 }}</span>
+                </div>
+                <div class="column-content">
+                    <app-message-card
+                            *ngFor="let msg of queuedMessages$ | async; trackBy: trackByMessageId"
+                            [message]="msg"
+                    />
+                    <div *ngIf="(queuedMessages$ | async)?.length === 0" class="text-center text-gray-500 py-8">
+                        <p class="text-sm">No messages in queue</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Inbox Column -->
+            <div class="column-container border-t-4 border-green-500">
+                <div class="column-header">
+                    <div class="column-title text-green-400">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                  d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
+                        </svg>
+                        Inbox (Ham)
+                    </div>
+                    <span class="column-count text-green-400">{{ (inboxMessages$ | async)?.length || 0 }}</span>
+                </div>
+                <div class="column-content">
+                    <app-message-card
+                            *ngFor="let msg of inboxMessages$ | async; trackBy: trackByMessageId"
+                            [message]="msg"
+                    />
+                    <div *ngIf="(inboxMessages$ | async)?.length === 0" class="text-center text-gray-500 py-8">
+                        <p class="text-sm">No ham messages</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Spam Column -->
+            <div class="column-container border-t-4 border-red-500">
+                <div class="column-header">
+                    <div class="column-title text-red-400">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                  d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                        </svg>
+                        Spam
+                    </div>
+                    <span class="column-count text-red-400">{{ (spamMessages$ | async)?.length || 0 }}</span>
+                </div>
+                <div class="column-content">
+                    <app-message-card
+                            *ngFor="let msg of spamMessages$ | async; trackBy: trackByMessageId"
+                            [message]="msg"
+                    />
+                    <div *ngIf="(spamMessages$ | async)?.length === 0" class="text-center text-gray-500 py-8">
+                        <p class="text-sm">No spam messages</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Pending Review Column -->
+            <div class="column-container border-t-4 border-yellow-500">
+                <div class="column-header">
+                    <div class="column-title text-yellow-400">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                  d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                  d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                        </svg>
+                        Review
+                    </div>
+                    <span class="column-count text-yellow-400">{{ (pendingMessages$ | async)?.length || 0 }}</span>
+                </div>
+                <div class="column-content">
+                    <app-message-card
+                            *ngFor="let msg of pendingMessages$ | async; trackBy: trackByMessageId"
+                            [message]="msg"
+                    />
+                    <div *ngIf="(pendingMessages$ | async)?.length === 0" class="text-center text-gray-500 py-8">
+                        <p class="text-sm">No pending reviews</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Stats Panel -->
+        <div class="w-80 flex-shrink-0">
+            <app-stats-panel
+                    [activeModel]="activeModel$ | async"
+                    [queueStats]="queueStats$ | async"
+                    [settings]="settings$ | async"
+            />
+        </div>
+    </div>
+
+    <!-- Toast Notifications -->
+    <div class="fixed bottom-4 right-4 space-y-2 z-50">
+        <div
+                *ngFor="let toast of toasts"
+                class="px-4 py-3 rounded-lg shadow-lg animate-slide-in-right"
+                [ngClass]="{
+            'bg-green-600': toast.type === 'success',
+            'bg-red-600': toast.type === 'error',
+            'bg-blue-600': toast.type === 'info',
+            'bg-yellow-600': toast.type === 'warning'
+          }"
+        >
+            <p class="text-white text-sm">{{ toast.message }}</p>
+        </div>
+    </div>
+</div>

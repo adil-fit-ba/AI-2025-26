@@ -1,0 +1,231 @@
+
+<div class="h-screen flex flex-col bg-gray-900">
+    <!-- Header -->
+    <header class="bg-gray-800 border-b border-gray-700 px-6 py-4">
+        <div class="flex items-center justify-between">
+            <div>
+                <h1 class="text-xl font-bold text-white">
+                    👁️ Moderation Review
+                </h1>
+                <p class="text-sm text-gray-400 mt-1">
+                    Review pending messages and provide gold labels
+                </p>
+            </div>
+
+            <div class="flex items-center gap-4">
+                <!-- Gold Progress -->
+                <div class="bg-gray-700 rounded-lg px-4 py-2">
+                    <div class="flex items-center gap-3">
+                <span class="text-yellow-400 font-semibold">
+                  {{ goldProgress?.current || 0 }} / {{ goldProgress?.threshold || 100 }}
+                </span>
+                        <div class="w-32 h-2 bg-gray-600 rounded-full overflow-hidden">
+                            <div
+                                    class="h-full bg-yellow-400 rounded-full transition-all"
+                                    [style.width.%]="goldProgress?.percentage || 0"
+                            ></div>
+                        </div>
+                        <span class="text-xs text-gray-400">gold labels</span>
+                    </div>
+                </div>
+
+                <button
+                        class="btn btn-secondary"
+                        (click)="loadPendingMessages()"
+                        [disabled]="loading"
+                >
+                    <svg class="w-4 h-4" [class.animate-spin]="loading" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                              d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <div class="flex-1 flex overflow-hidden">
+        <!-- Message List -->
+        <div class="w-1/2 border-r border-gray-700 overflow-y-auto p-4">
+            <h2 class="text-lg font-semibold text-gray-300 mb-4">
+                Pending Review ({{ pendingMessages.length }})
+            </h2>
+
+            <div *ngIf="pendingMessages.length === 0" class="text-center py-12 text-gray-500">
+                <svg class="w-16 h-16 mx-auto mb-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                          d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <p>No messages pending review</p>
+                <p class="text-sm mt-1">All caught up! 🎉</p>
+            </div>
+
+            <div class="space-y-3">
+                <div
+                        *ngFor="let msg of pendingMessages"
+                        class="bg-gray-800 rounded-lg p-4 cursor-pointer transition-all hover:bg-gray-750 border-2"
+                        [class.border-yellow-500]="selectedMessage?.id === msg.id"
+                        [class.border-transparent]="selectedMessage?.id !== msg.id"
+                        (click)="selectMessage(msg)"
+                >
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="badge badge-pending">PENDING</span>
+                        <span class="text-xs text-gray-500 font-mono">#{{ msg.id }}</span>
+                    </div>
+
+                    <p class="text-sm text-gray-300 line-clamp-2 mb-2">{{ msg.text }}</p>
+
+                    <div *ngIf="msg.lastPrediction" class="flex items-center gap-4 text-xs">
+                <span class="text-gray-400">
+                  pSpam:
+                  <span
+                          class="font-mono font-semibold"
+                          [style.color]="getPSpamColor(msg.lastPrediction.pSpam)"
+                  >
+                    {{ (msg.lastPrediction.pSpam * 100).toFixed(1) }}%
+                  </span>
+                </span>
+                        <span *ngIf="msg.trueLabel" class="text-gray-400">
+                  Truth:
+                  <span
+                          [class.text-green-400]="msg.trueLabel === 'Ham'"
+                          [class.text-red-400]="msg.trueLabel === 'Spam'"
+                  >
+                    {{ msg.trueLabel }}
+                  </span>
+                </span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Detail Panel -->
+        <div class="w-1/2 p-6 overflow-y-auto">
+            <div *ngIf="!selectedMessage" class="h-full flex items-center justify-center text-gray-500">
+                <div class="text-center">
+                    <svg class="w-16 h-16 mx-auto mb-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                              d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                    </svg>
+                    <p>Select a message to review</p>
+                </div>
+            </div>
+
+            <div *ngIf="selectedMessage" class="space-y-6">
+                <!-- Message Header -->
+                <div class="flex items-center justify-between">
+                    <h3 class="text-lg font-semibold text-white">Message #{{ selectedMessage.id }}</h3>
+                    <span class="text-sm text-gray-400">
+                {{ selectedMessage.createdAtUtc | date:'medium' }}
+              </span>
+                </div>
+
+                <!-- Full Message Text -->
+                <div class="bg-gray-800 rounded-lg p-4">
+                    <h4 class="text-sm font-semibold text-gray-400 mb-2">MESSAGE TEXT</h4>
+                    <p class="text-gray-200 whitespace-pre-wrap">{{ selectedMessage.text }}</p>
+                </div>
+
+                <!-- Prediction Info -->
+                <div *ngIf="selectedMessage.lastPrediction" class="bg-gray-800 rounded-lg p-4">
+                    <h4 class="text-sm font-semibold text-gray-400 mb-3">MODEL PREDICTION</h4>
+
+                    <div class="space-y-3">
+                        <div class="flex items-center justify-between">
+                            <span class="text-gray-400">Spam Probability</span>
+                            <span
+                                    class="text-xl font-mono font-bold"
+                                    [style.color]="getPSpamColor(selectedMessage.lastPrediction.pSpam)"
+                            >
+                    {{ (selectedMessage.lastPrediction.pSpam * 100).toFixed(1) }}%
+                  </span>
+                        </div>
+
+                        <div class="h-3 bg-gray-700 rounded-full overflow-hidden">
+                            <div
+                                    class="h-full rounded-full transition-all"
+                                    [style.width.%]="selectedMessage.lastPrediction.pSpam * 100"
+                                    [style.backgroundColor]="getPSpamColor(selectedMessage.lastPrediction.pSpam)"
+                            ></div>
+                        </div>
+
+                        <div class="flex items-center justify-between text-sm">
+                            <span class="text-gray-400">Decision</span>
+                            <span class="badge badge-pending">{{ selectedMessage.lastPrediction.decision }}</span>
+                        </div>
+
+                        <div *ngIf="selectedMessage.trueLabel" class="flex items-center justify-between text-sm">
+                            <span class="text-gray-400">Ground Truth</span>
+                            <span
+                                    class="font-semibold"
+                                    [class.text-green-400]="selectedMessage.trueLabel === 'Ham'"
+                                    [class.text-red-400]="selectedMessage.trueLabel === 'Spam'"
+                            >
+                    {{ selectedMessage.trueLabel }}
+                  </span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Review Actions -->
+                <div class="bg-gray-800 rounded-lg p-4">
+                    <h4 class="text-sm font-semibold text-gray-400 mb-3">YOUR REVIEW</h4>
+
+                    <!-- Note Input -->
+                    <div class="mb-4">
+                        <label class="block text-sm text-gray-400 mb-1">Note (optional)</label>
+                        <input
+                                type="text"
+                                [(ngModel)]="reviewNote"
+                                placeholder="Add a note..."
+                                class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500"
+                        />
+                    </div>
+
+                    <!-- Action Buttons -->
+                    <div class="flex gap-3">
+                        <button
+                                class="flex-1 btn btn-success py-3 text-lg font-semibold flex items-center justify-center gap-2"
+                                (click)="submitReview('ham')"
+                                [disabled]="submitting"
+                        >
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                            </svg>
+                            HAM (Legit)
+                        </button>
+                        <button
+                                class="flex-1 btn btn-danger py-3 text-lg font-semibold flex items-center justify-center gap-2"
+                                (click)="submitReview('spam')"
+                                [disabled]="submitting"
+                        >
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                            SPAM
+                        </button>
+                    </div>
+
+                    <p class="text-xs text-gray-500 mt-3 text-center">
+                        Your label will be used as gold standard for model retraining
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notifications -->
+    <div class="fixed bottom-4 right-4 space-y-2 z-50">
+        <div
+                *ngFor="let toast of toasts"
+                class="px-4 py-3 rounded-lg shadow-lg animate-slide-in-right"
+                [ngClass]="{
+            'bg-green-600': toast.type === 'success',
+            'bg-red-600': toast.type === 'error',
+            'bg-yellow-600': toast.type === 'warning'
+          }"
+        >
+            <p class="text-white text-sm">{{ toast.message }}</p>
+        </div>
+    </div>
+</div>
