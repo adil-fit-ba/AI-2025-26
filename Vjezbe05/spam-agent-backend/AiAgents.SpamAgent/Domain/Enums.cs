@@ -50,17 +50,20 @@ public enum MessageStatus
     /// <summary>Čeka na procesiranje</summary>
     Queued = 1,
     
+    /// <summary>Preuzeta od workera, procesiranje u toku (atomični claim)</summary>
+    Processing = 2,
+    
     /// <summary>Scorovana, ali još nije premještena</summary>
-    Scored = 2,
+    Scored = 3,
     
     /// <summary>Klasificirana kao legitimna</summary>
-    InInbox = 3,
+    InInbox = 4,
     
     /// <summary>Klasificirana kao spam</summary>
-    InSpam = 4,
+    InSpam = 5,
     
     /// <summary>Nesigurna - čeka review</summary>
-    PendingReview = 5
+    PendingReview = 6
 }
 
 /// <summary>

@@ -12,6 +12,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
@@ -20,7 +21,7 @@ using AiAgents.SpamAgent.Domain;
 using AiAgents.SpamAgent.Infrastructure;
 using AiAgents.SpamAgent.Application.Services;
 using AiAgents.SpamAgent.Application.Queries;
-using AiAgents.SpamAgent.Application.Runners;
+using AiAgents.SpamAgent.Application.Agents;
 using AiAgents.SpamAgent.Web.Hubs;
 using AiAgents.SpamAgent.Web.Models;
 using AiAgents.SpamAgent.Web.BackgroundServices;
@@ -36,7 +37,7 @@ public class AdminController : ControllerBase
     private readonly AdminQueryService _adminQuery;
     private readonly TrainingService _trainingService;
     private readonly DatabaseSeeder _seeder;
-    private readonly RetrainAgentRunner _retrainRunner;
+    private readonly RetrainAgent _retrainAgent;
     private readonly IHubContext<SpamAgentHub> _hubContext;
     private readonly SimulatorService? _simulatorService;
     private readonly SpamAgentOptions _options;
@@ -46,7 +47,7 @@ public class AdminController : ControllerBase
         AdminQueryService adminQuery,
         TrainingService trainingService,
         DatabaseSeeder seeder,
-        RetrainAgentRunner retrainRunner,
+        RetrainAgent retrainAgent,
         IHubContext<SpamAgentHub> hubContext,
         SpamAgentOptions options,
         IServiceProvider serviceProvider)
@@ -55,7 +56,7 @@ public class AdminController : ControllerBase
         _adminQuery = adminQuery;
         _trainingService = trainingService;
         _seeder = seeder;
-        _retrainRunner = retrainRunner;
+        _retrainAgent = retrainAgent;
         _hubContext = hubContext;
         _options = options;
 
@@ -119,7 +120,7 @@ public class AdminController : ControllerBase
             return BadRequest("Template mora biti: Light, Medium, Full");
         }
 
-        var result = await _retrainRunner.ForceRetrainAsync(template, request.Activate);
+        var result = await _retrainAgent.ForceRetrainAsync(template, request.Activate);
         
         if (!result.Success)
         {
@@ -161,7 +162,7 @@ public class AdminController : ControllerBase
             tmpl = TrainTemplate.Medium;
         }
 
-        var result = await _retrainRunner.ForceRetrainAsync(tmpl, activate);
+        var result = await _retrainAgent.ForceRetrainAsync(tmpl, activate);
 
         if (!result.Success)
         {

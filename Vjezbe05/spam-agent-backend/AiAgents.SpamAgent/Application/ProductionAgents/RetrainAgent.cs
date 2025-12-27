@@ -1,45 +1,52 @@
 /*
  * ═══════════════════════════════════════════════════════════════════════════════
- *          SPAM AGENT - RETRAIN AGENT RUNNER
+ *          SPAM AGENT - RETRAIN AGENT (PRODUKCIJSKI)
  * ═══════════════════════════════════════════════════════════════════════════════
  *
- * Async runner koji implementira agent ciklus: Sense → Think → Act → Learn
+ * Produkcijski agent za automatski retrain ML modela.
+ * 
+ * Implementira Sense → Think → Act → Learn ciklus kroz async TickAsync():
  *
  *   SENSE:  Provjeri NewGoldSinceLastTrain counter
  *   THINK:  Odluči da li treba retrenirati (counter >= threshold)
  *   ACT:    Pokreni trening novog modela i aktiviraj ga
  *   LEARN:  Reset counter, logiraj rezultat
  *
- * Ovaj runner se koristi iz BackgroundService-a u Web sloju.
- * Agent klase (RetrainAgent) ostaju kao edukativni primjer generičkog agenta.
+ * NAPOMENA:
+ *   - Koristi scoped DbContext (worker radi scope-per-iteration)
+ *   - Sva logika je async, bez .Wait() ili .Result
+ *
+ * RAZLIKA OD DEMO VERZIJE:
+ *   - Demo verzija (DemoAgents/RetrainAgentDemo.cs) koristi SoftwareAgent<T> baznu klasu
+ *   - Ova verzija implementira ITickAgent<T> za BackgroundService integraciju
  */
 
 using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
+using AiAgents.SpamAgent.Abstractions;
+using AiAgents.SpamAgent.Application.Services;
 using AiAgents.SpamAgent.Domain;
 using AiAgents.SpamAgent.Infrastructure;
-using AiAgents.SpamAgent.Application.Services;
 
-namespace AiAgents.SpamAgent.Application.Runners;
+namespace AiAgents.SpamAgent.Application.Agents;
 
 /// <summary>
-/// Async runner za retrain agent - provjerava i eventualno retrenira model.
+/// Produkcijski retrain agent - provjerava i eventualno retrenira model.
 /// </summary>
-public class RetrainAgentRunner
+public sealed class RetrainAgent : ITickAgent<RetrainTickResult>
 {
-    // Bitno: BackgroundService tipično živi dugo → nemoj držati DbContext kao field.
-    private readonly IDbContextFactory<SpamAgentDbContext> _dbFactory;
+    private readonly SpamAgentDbContext _context;
     private readonly TrainingService _trainingService;
     private readonly TrainTemplate _defaultTemplate;
 
-    public RetrainAgentRunner(
-        IDbContextFactory<SpamAgentDbContext> dbFactory,
+    public RetrainAgent(
+        SpamAgentDbContext context,
         TrainingService trainingService,
         TrainTemplate defaultTemplate = TrainTemplate.Medium)
     {
-        _dbFactory = dbFactory;
+        _context = context;
         _trainingService = trainingService;
         _defaultTemplate = defaultTemplate;
     }
@@ -50,13 +57,13 @@ public class RetrainAgentRunner
     /// </summary>
     public async Task<RetrainTickResult?> TickAsync(CancellationToken ct = default)
     {
+        ct.ThrowIfCancellationRequested();
+
         // ═══════════════════════════════════════════════════════════════════
         // SENSE: Pročitaj stanje (gold counter, threshold, enabled)
         // ═══════════════════════════════════════════════════════════════════
 
-        await using var context = await _dbFactory.CreateDbContextAsync(ct);
-
-        var settings = await context.SystemSettings
+        var settings = await _context.SystemSettings
             .AsNoTracking()
             .FirstAsync(ct);
 
@@ -65,13 +72,13 @@ public class RetrainAgentRunner
             NewGoldCount = settings.NewGoldSinceLastTrain,
             Threshold = settings.RetrainGoldThreshold,
             AutoRetrainEnabled = settings.AutoRetrainEnabled,
-            // Ovdje je ID aktivnog modela (ne "Version" broj).
             CurrentModelVersion = settings.ActiveModelVersionId
         };
 
         // ═══════════════════════════════════════════════════════════════════
         // THINK: Odluči da li retrenirati
         // ═══════════════════════════════════════════════════════════════════
+
         if (!state.AutoRetrainEnabled)
             return null; // Auto-retrain isključen
 
@@ -81,21 +88,25 @@ public class RetrainAgentRunner
         if (state.NewGoldCount < state.Threshold)
             return null; // Još nedovoljno gold labela
 
+        ct.ThrowIfCancellationRequested();
+
         // ═══════════════════════════════════════════════════════════════════
         // ACT: Treniraj novi model i aktiviraj ga
         // ═══════════════════════════════════════════════════════════════════
+
         try
         {
             // TrainingService je odgovoran za:
-            // - trening
-            // - upis ModelVersion
-            // - (po potrebi) aktivaciju
-            // - reset counter-a NewGoldSinceLastTrain (prema tvojoj specifikaciji)
-            var model = await _trainingService.TrainModelAsync(_defaultTemplate, activate: true);
+            // - trening modela
+            // - upis ModelVersion u bazu
+            // - aktivaciju modela
+            // - reset counter-a NewGoldSinceLastTrain
+            var model = await _trainingService.TrainModelAsync(_defaultTemplate, activate: true, ct);
 
             // ═══════════════════════════════════════════════════════════════════
             // LEARN: Rezultat (counter je već resetovan u TrainingService)
             // ═══════════════════════════════════════════════════════════════════
+
             return new RetrainTickResult
             {
                 Success = true,
@@ -114,6 +125,10 @@ public class RetrainAgentRunner
                 Reason = $"Auto-retrain: {state.NewGoldCount} gold labela (threshold: {state.Threshold})",
                 Timestamp = DateTime.UtcNow
             };
+        }
+        catch (OperationCanceledException)
+        {
+            throw; // Propagiraj cancellation
         }
         catch (Exception ex)
         {
@@ -138,7 +153,7 @@ public class RetrainAgentRunner
 
         try
         {
-            var model = await _trainingService.TrainModelAsync(tmpl, activate);
+            var model = await _trainingService.TrainModelAsync(tmpl, activate, ct);
 
             return new RetrainTickResult
             {
@@ -159,6 +174,10 @@ public class RetrainAgentRunner
                 Timestamp = DateTime.UtcNow
             };
         }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             return new RetrainTickResult
@@ -175,9 +194,7 @@ public class RetrainAgentRunner
     /// </summary>
     public async Task<RetrainState> GetStateAsync(CancellationToken ct = default)
     {
-        await using var context = await _dbFactory.CreateDbContextAsync(ct);
-
-        var settings = await context.SystemSettings
+        var settings = await _context.SystemSettings
             .AsNoTracking()
             .FirstAsync(ct);
 

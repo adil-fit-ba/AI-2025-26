@@ -5,6 +5,7 @@
  */
 
 using System;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using AiAgents.SpamAgent.Domain;
@@ -31,12 +32,15 @@ public class ScoringService
     /// Scoruje poruku i ažurira njen status.
     /// </summary>
     /// <param name="message">Poruka za scorovanje</param>
+    /// <param name="ct">Cancellation token</param>
     /// <returns>Rezultat scorovanja</returns>
-    public async Task<ScoringResult> ScoreMessageAsync(Message message)
+    public async Task<ScoringResult> ScoreMessageAsync(Message message, CancellationToken ct = default)
     {
+        ct.ThrowIfCancellationRequested();
+
         var settings = await _context.SystemSettings
             .Include(s => s.ActiveModelVersion)
-            .FirstAsync();
+            .FirstAsync(ct);
 
         if (settings.ActiveModelVersionId == null)
         {
@@ -48,6 +52,8 @@ public class ScoringService
             var model = settings.ActiveModelVersion!;
             await _classifier.LoadModelAsync(model.ModelFilePath);
         }
+
+        ct.ThrowIfCancellationRequested();
 
         // Izračunaj pSpam
         var pSpam = await _classifier.PredictAsync(message.Text);
@@ -72,6 +78,8 @@ public class ScoringService
             newStatus = MessageStatus.PendingReview;
         }
 
+        ct.ThrowIfCancellationRequested();
+
         // Kreiraj Prediction zapis
         var prediction = new Prediction
         {
@@ -88,7 +96,7 @@ public class ScoringService
         message.Status = newStatus;
         message.LastModelVersionId = settings.ActiveModelVersionId.Value;
 
-        await _context.SaveChangesAsync();
+        await _context.SaveChangesAsync(ct);
 
         return new ScoringResult
         {
@@ -104,9 +112,9 @@ public class ScoringService
     /// <summary>
     /// Provjerava da li je model spreman za scorovanje.
     /// </summary>
-    public async Task<bool> IsReadyAsync()
+    public async Task<bool> IsReadyAsync(CancellationToken ct = default)
     {
-        var settings = await _context.SystemSettings.FirstAsync();
+        var settings = await _context.SystemSettings.FirstAsync(ct);
         return settings.ActiveModelVersionId != null;
     }
 }

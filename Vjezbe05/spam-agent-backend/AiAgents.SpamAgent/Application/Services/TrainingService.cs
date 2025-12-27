@@ -8,6 +8,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using AiAgents.SpamAgent.Domain;
@@ -53,10 +54,16 @@ public class TrainingService
     /// </summary>
     /// <param name="template">Light/Medium/Full</param>
     /// <param name="activate">Ako true, aktivira model nakon treninga</param>
+    /// <param name="ct">Cancellation token</param>
     /// <returns>Nova verzija modela sa metrikama</returns>
-    public async Task<ModelVersion> TrainModelAsync(TrainTemplate template, bool activate = false)
+    public async Task<ModelVersion> TrainModelAsync(
+        TrainTemplate template, 
+        bool activate = false,
+        CancellationToken ct = default)
     {
-        var settings = await _context.SystemSettings.FirstAsync();
+        ct.ThrowIfCancellationRequested();
+
+        var settings = await _context.SystemSettings.FirstAsync(ct);
 
         // 1. Pripremi training set
         var maxSamples = TemplateSizes[template];
@@ -69,13 +76,15 @@ public class TrainingService
             .OrderBy(m => m.Id)
             .Take(maxSamples)
             .Select(m => new { m.Text, m.TrueLabel })
-            .ToListAsync();
+            .ToListAsync(ct);
+
+        ct.ThrowIfCancellationRequested();
 
         // Gold labels (sve review-ovane poruke)
         var goldData = await _context.Reviews
             .Include(r => r.Message)
             .Select(r => new { r.Message.Text, TrueLabel = (Label?)r.Label })
-            .ToListAsync();
+            .ToListAsync(ct);
 
         // Kombiniraj
         var trainingSamples = uciTrainData
@@ -84,21 +93,25 @@ public class TrainingService
             .Select(x => new TrainingSample(x.Text, x.TrueLabel == Label.Spam))
             .ToList();
 
+        ct.ThrowIfCancellationRequested();
+
         // 2. Pripremi validation set (fiksno)
         var validationData = await _context.Messages
             .Where(m => m.Source == MessageSource.Uci && 
                        m.Split == DataSplit.ValidationHoldout &&
                        m.TrueLabel != null)
             .Select(m => new { m.Text, m.TrueLabel })
-            .ToListAsync();
+            .ToListAsync(ct);
 
         var validationSamples = validationData
             .Where(x => x.TrueLabel != null)
             .Select(x => new TrainingSample(x.Text, x.TrueLabel == Label.Spam))
             .ToList();
 
+        ct.ThrowIfCancellationRequested();
+
         // 3. Odredi novu verziju
-        var maxVersion = await _context.ModelVersions.MaxAsync(mv => (int?)mv.Version) ?? 0;
+        var maxVersion = await _context.ModelVersions.MaxAsync(mv => (int?)mv.Version, ct) ?? 0;
         var newVersion = maxVersion + 1;
         var modelFileName = $"model_v{newVersion:D3}.zip";
         var modelPath = Path.Combine(_modelsDirectory, modelFileName);
@@ -106,8 +119,12 @@ public class TrainingService
         // 4. Treniraj
         await _classifier.TrainAsync(trainingSamples, modelPath);
 
+        ct.ThrowIfCancellationRequested();
+
         // 5. Evaluiraj
         var metrics = await _classifier.EvaluateAsync(validationSamples);
+
+        ct.ThrowIfCancellationRequested();
 
         // 6. Kreiraj ModelVersion zapis
         var modelVersion = new ModelVersion
@@ -131,18 +148,18 @@ public class TrainingService
         };
 
         _context.ModelVersions.Add(modelVersion);
-        await _context.SaveChangesAsync();
+        await _context.SaveChangesAsync(ct);
 
         // 7. Aktiviraj ako je zatraženo
         if (activate)
         {
-            await ActivateModelAsync(modelVersion.Id);
+            await ActivateModelAsync(modelVersion.Id, ct);
         }
 
         // 8. Resetuj gold counter
         settings.NewGoldSinceLastTrain = 0;
         settings.LastRetrainAtUtc = DateTime.UtcNow;
-        await _context.SaveChangesAsync();
+        await _context.SaveChangesAsync(ct);
 
         return modelVersion;
     }
@@ -150,29 +167,24 @@ public class TrainingService
     /// <summary>
     /// Aktivira postojeći model.
     /// </summary>
-    public async Task<ModelVersion?> ActivateModelAsync(int modelVersionId)
+    public async Task<ModelVersion?> ActivateModelAsync(int modelVersionId, CancellationToken ct = default)
     {
-        var model = await _context.ModelVersions.FindAsync(modelVersionId);
+        var model = await _context.ModelVersions.FindAsync(new object[] { modelVersionId }, ct);
         if (model == null) return null;
 
         // Deaktiviraj sve ostale
-        var activeModels = await _context.ModelVersions
+        await _context.ModelVersions
             .Where(mv => mv.IsActive)
-            .ToListAsync();
-        
-        foreach (var m in activeModels)
-        {
-            m.IsActive = false;
-        }
+            .ExecuteUpdateAsync(s => s.SetProperty(mv => mv.IsActive, false), ct);
 
         // Aktiviraj traženi
         model.IsActive = true;
 
         // Ažuriraj SystemSettings
-        var settings = await _context.SystemSettings.FirstAsync();
+        var settings = await _context.SystemSettings.FirstAsync(ct);
         settings.ActiveModelVersionId = modelVersionId;
 
-        await _context.SaveChangesAsync();
+        await _context.SaveChangesAsync(ct);
 
         // Učitaj model u classifier
         await _classifier.LoadModelAsync(model.ModelFilePath);
@@ -183,29 +195,29 @@ public class TrainingService
     /// <summary>
     /// Vraća aktivni model.
     /// </summary>
-    public async Task<ModelVersion?> GetActiveModelAsync()
+    public async Task<ModelVersion?> GetActiveModelAsync(CancellationToken ct = default)
     {
         return await _context.ModelVersions
             .Where(mv => mv.IsActive)
-            .FirstOrDefaultAsync();
+            .FirstOrDefaultAsync(ct);
     }
 
     /// <summary>
     /// Vraća sve verzije modela.
     /// </summary>
-    public async Task<List<ModelVersion>> GetAllModelsAsync()
+    public async Task<List<ModelVersion>> GetAllModelsAsync(CancellationToken ct = default)
     {
         return await _context.ModelVersions
             .OrderByDescending(mv => mv.Version)
-            .ToListAsync();
+            .ToListAsync(ct);
     }
 
     /// <summary>
     /// Učitava aktivni model u classifier (za startup).
     /// </summary>
-    public async Task<bool> LoadActiveModelAsync()
+    public async Task<bool> LoadActiveModelAsync(CancellationToken ct = default)
     {
-        var active = await GetActiveModelAsync();
+        var active = await GetActiveModelAsync(ct);
         if (active == null) return false;
 
         if (!File.Exists(active.ModelFilePath)) return false;

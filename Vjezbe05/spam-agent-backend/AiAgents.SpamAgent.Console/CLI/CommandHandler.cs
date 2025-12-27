@@ -12,7 +12,6 @@ using AiAgents.SpamAgent.Domain;
 using AiAgents.SpamAgent.Infrastructure;
 using AiAgents.SpamAgent.Application.Services;
 using AiAgents.SpamAgent.ML;
-using AiAgents.SpamAgent.Agent;
 
 namespace AiAgents.SpamAgent.Console.CLI;
 

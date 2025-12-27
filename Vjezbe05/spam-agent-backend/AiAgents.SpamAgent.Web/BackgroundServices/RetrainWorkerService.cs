@@ -5,106 +5,75 @@
  *
  * Background servis koji prati gold labele i automatski retrenira model.
  *
- * Koristi RetrainAgentRunner iz shared library-ja.
- * Servis je samo "host" - sva logika je u Runner-u.
+ * Koristi RetrainAgent iz Application/Agents/.
+ * Nasleđuje TickWorkerServiceBase za zajedničku loop logiku.
  *
- * Pattern: Scope per iteration (bitno za EF Core!)
+ * NAPOMENA: RetrainAgent ne implementira IReadyCheckAgent jer uvijek može
+ * provjeriti stanje (za razliku od ScoringAgent koji treba model).
  */
 
 using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.AspNetCore.SignalR;
+using AiAgents.SpamAgent.Application.Agents;
 using AiAgents.SpamAgent.Application.Queries;
-using AiAgents.SpamAgent.Application.Runners;
 using AiAgents.SpamAgent.Web.Hubs;
 using AiAgents.SpamAgent.Web.Models;
 
 namespace AiAgents.SpamAgent.Web.BackgroundServices;
 
-public class RetrainWorkerService : BackgroundService
+public class RetrainWorkerService : TickWorkerServiceBase<RetrainAgent, RetrainTickResult>
 {
-    private readonly IServiceScopeFactory _scopeFactory;
     private readonly IHubContext<SpamAgentHub> _hubContext;
-    private readonly ILogger<RetrainWorkerService> _logger;
 
-    // Provjera svakih 10 sekundi
-    private const int CheckIntervalMs = 10000;
-
-    // Kratki backoff ako se desi neočekivana greška
-    private const int ErrorBackoffMs = 5000;
+    // Provjera svakih 10 sekundi (idle = check interval)
+    protected override int IdleDelayMs => 10000;
+    protected override int BusyDelayMs => 1000; // Nakon retraina, kratka pauza
+    protected override int ErrorDelayMs => 5000;
 
     public RetrainWorkerService(
         IServiceScopeFactory scopeFactory,
         IHubContext<SpamAgentHub> hubContext,
         ILogger<RetrainWorkerService> logger)
+        : base(scopeFactory, logger)
     {
-        _scopeFactory = scopeFactory;
         _hubContext = hubContext;
-        _logger = logger;
     }
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    /// <summary>
+    /// RetrainAgent uvijek može raditi (samo provjerava stanje).
+    /// </summary>
+    protected override Task<bool> IsAgentReadyAsync(RetrainAgent agent, CancellationToken ct)
     {
-        _logger.LogInformation("RetrainWorker pokrenut.");
+        return Task.FromResult(true);
+    }
 
-        while (!stoppingToken.IsCancellationRequested)
+    /// <summary>
+    /// Obrađuje rezultat tick-a: logira i emituje SignalR evente.
+    /// </summary>
+    protected override async Task OnTickResultAsync(
+        RetrainTickResult result,
+        IServiceProvider scopedServices,
+        CancellationToken ct)
+    {
+        if (result.Success)
         {
-            var delayMs = CheckIntervalMs;
+            Logger.LogInformation(
+                "Model v{Version} automatski treniran. Accuracy: {Accuracy:P2}",
+                result.NewModelVersion,
+                result.Metrics?.Accuracy ?? 0);
 
-            try
-            {
-                // Scope per iteration - bitno za EF Core!
-                using var scope = _scopeFactory.CreateScope();
-                var runner = scope.ServiceProvider.GetRequiredService<RetrainAgentRunner>();
-
-                // Jedan tick agenta: Sense → Think → Act → Learn
-                var result = await runner.TickAsync(stoppingToken);
-
-                // Ako je retrain izvršen i uspješan
-                if (result != null && result.Success)
-                {
-                    _logger.LogInformation(
-                        "Model v{Version} automatski treniran. Accuracy: {Accuracy:P2}",
-                        result.NewModelVersion,
-                        result.Metrics?.Accuracy ?? 0);
-
-                    // Emituj SignalR evente
-                    await EmitModelRetrainedEventAsync(result);
-                    await EmitStatsUpdateAsync(scope.ServiceProvider);
-                }
-                // Ako je retrain pokušao, ali nije uspio (da se ne “proguta” greška)
-                else if (result != null && !result.Success)
-                {
-                    _logger.LogWarning("Auto-retrain nije uspio. Razlog: {Reason}", result.Reason);
-                }
-            }
-            catch (OperationCanceledException)
-            {
-                // Normalan shutdown
-                break;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Greška u RetrainWorker loop-u");
-                delayMs = ErrorBackoffMs;
-            }
-
-            // Regularni interval provjere (ili kraći backoff ako je bila greška)
-            try
-            {
-                await Task.Delay(delayMs, stoppingToken);
-            }
-            catch (OperationCanceledException)
-            {
-                break;
-            }
+            // Emituj SignalR evente
+            await EmitModelRetrainedEventAsync(result);
+            await EmitStatsUpdateAsync(scopedServices, ct);
         }
-
-        _logger.LogInformation("RetrainWorker zaustavljen.");
+        else
+        {
+            Logger.LogWarning("Auto-retrain nije uspio. Razlog: {Reason}", result.Reason);
+        }
     }
 
     private async Task EmitModelRetrainedEventAsync(RetrainTickResult result)
@@ -127,13 +96,13 @@ public class RetrainWorkerService : BackgroundService
         await _hubContext.SendModelRetrained(evt);
     }
 
-    private async Task EmitStatsUpdateAsync(IServiceProvider serviceProvider)
+    private async Task EmitStatsUpdateAsync(IServiceProvider serviceProvider, CancellationToken ct)
     {
         var messageQuery = serviceProvider.GetRequiredService<MessageQueryService>();
         var adminQuery = serviceProvider.GetRequiredService<AdminQueryService>();
 
-        var counts = await messageQuery.GetCountsAsync();
-        var goldStats = await adminQuery.GetGoldStatsAsync();
+        var counts = await messageQuery.GetCountsAsync(ct);
+        var goldStats = await adminQuery.GetGoldStatsAsync(ct);
 
         var evt = new StatsUpdatedEvent
         {

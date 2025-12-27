@@ -13,7 +13,7 @@ using Microsoft.Extensions.DependencyInjection;
 using AiAgents.SpamAgent.Infrastructure;
 using AiAgents.SpamAgent.Application.Services;
 using AiAgents.SpamAgent.Application.Queries;
-using AiAgents.SpamAgent.Application.Runners;
+using AiAgents.SpamAgent.Application.Agents;
 using AiAgents.SpamAgent.ML;
 
 namespace AiAgents.SpamAgent;
@@ -41,16 +41,13 @@ public static class ServiceCollectionExtensions
          * EF Core DbContext
          * ─────────────────
          * DbContext je Scoped (po requestu / po scope-u).
-         * ALI: Ako koristiš IDbContextFactory<T>, factory je Singleton i traži
-         * DbContextOptions kao Singleton. Zato optionsLifetime mora biti Singleton.
+         * Worker servisi rade "scope per iteration" tako da DbContext živi
+         * samo tijekom jednog tick-a agenta.
          */
         services.AddDbContext<SpamAgentDbContext>(
             configureDb,
             contextLifetime: ServiceLifetime.Scoped,
             optionsLifetime: ServiceLifetime.Singleton);
-
-        // DbContextFactory (ako neki runner/service traži IDbContextFactory<T>)
-        services.AddDbContextFactory<SpamAgentDbContext>(configureDb);
 
         // ML Classifier (singleton za caching modela)
         services.AddSingleton<ISpamClassifier, MlNetSpamClassifier>();
@@ -73,9 +70,9 @@ public static class ServiceCollectionExtensions
         services.AddScoped<MessageQueryService>();
         services.AddScoped<AdminQueryService>();
 
-        // Agent Runners (scoped)
-        services.AddScoped<ScoringAgentRunner>();
-        services.AddScoped<RetrainAgentRunner>();
+        // Produkcijski agenti (scoped) - koriste ih BackgroundService-i
+        services.AddScoped<ScoringAgent>();
+        services.AddScoped<RetrainAgent>();
 
         // Database seeder (scoped)
         services.AddScoped<DatabaseSeeder>();

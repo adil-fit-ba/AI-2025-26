@@ -1,35 +1,44 @@
 /*
  * ═══════════════════════════════════════════════════════════════════════════════
- *          SPAM AGENT - SCORING AGENT RUNNER
+ *          SPAM AGENT - SCORING AGENT (PRODUKCIJSKI)
  * ═══════════════════════════════════════════════════════════════════════════════
  *
- * Async runner koji implementira agent ciklus: Sense → Think → Act
+ * Produkcijski agent za scoring SMS poruka.
+ * 
+ * Implementira Sense → Think → Act ciklus kroz async TickAsync():
  *
- *   SENSE:  Dohvati sljedeću poruku iz queue-a (Status=Queued)
+ *   SENSE:  Atomični claim sljedeće poruke iz queue-a (Status=Queued → Processing)
  *   THINK:  ML model izračuna pSpam vjerovatnoću
- *   ACT:    Odredi odluku + update status poruke + persist prediction
+ *   ACT:    Odluka (Allow/Pending/Block) + update status poruke + persist prediction
  *
- * Ovaj runner se koristi iz BackgroundService-a u Web sloju.
- * Agent klase (ScoringAgent) ostaju kao edukativni primjer generičkog agenta.
+ * NAPOMENA:
+ *   - Learn se ne dešava u ovom agentu - to radi RetrainAgent!
+ *   - Koristi ClaimNextQueuedAsync za atomični dequeue (bez race condition)
+ *   - Sva logika je async, bez .Wait() ili .Result
+ *
+ * RAZLIKA OD DEMO VERZIJE:
+ *   - Demo verzija (DemoAgents/ScoringAgentDemo.cs) koristi SoftwareAgent<T> baznu klasu
+ *   - Ova verzija implementira IProductionAgent<T> za BackgroundService integraciju
  */
 
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using AiAgents.SpamAgent.Domain;
+using AiAgents.SpamAgent.Abstractions;
 using AiAgents.SpamAgent.Application.Services;
+using AiAgents.SpamAgent.Domain;
 
-namespace AiAgents.SpamAgent.Application.Runners;
+namespace AiAgents.SpamAgent.Application.Agents;
 
 /// <summary>
-/// Async runner za scoring agent - jedan tick procesira jednu poruku.
+/// Produkcijski scoring agent - jedan tick procesira jednu poruku.
 /// </summary>
-public class ScoringAgentRunner
+public sealed class ScoringAgent : IProductionAgent<ScoringTickResult>
 {
     private readonly QueueService _queueService;
     private readonly ScoringService _scoringService;
 
-    public ScoringAgentRunner(
+    public ScoringAgent(
         QueueService queueService,
         ScoringService scoringService)
     {
@@ -46,30 +55,40 @@ public class ScoringAgentRunner
         ct.ThrowIfCancellationRequested();
 
         // ═══════════════════════════════════════════════════════════════════
-        // SENSE: Dohvati sljedeću poruku iz queue-a
+        // SENSE: Atomični claim poruke iz queue-a
         // ═══════════════════════════════════════════════════════════════════
         //
-        // NAPOMENA (VAŽNO ZA ISPRAVNOST):
-        // DequeueNextAsync treba "claimati" poruku (npr. promijeniti status sa Queued)
-        // unutar transakcije, da dva workera ne uzmu istu poruku.
+        // ClaimNextQueuedAsync koristi conditional UPDATE:
+        //   UPDATE Messages SET Status='Processing' 
+        //   WHERE Id=X AND Status='Queued'
         //
-        var message = await _queueService.DequeueNextAsync();
-
-        ct.ThrowIfCancellationRequested();
+        // Samo jedan worker može uspješno claim-ati poruku.
+        //
+        var message = await _queueService.ClaimNextQueuedAsync(ct);
 
         if (message == null)
         {
             return null; // Queue je prazan
         }
 
+        ct.ThrowIfCancellationRequested();
+
         // ═══════════════════════════════════════════════════════════════════
         // THINK + ACT: Score poruku i ažuriraj status
         // ═══════════════════════════════════════════════════════════════════
-        var scoringResult = await _scoringService.ScoreMessageAsync(message);
+        //
+        // ScoringService:
+        //   1. Učitava ML model ako nije učitan
+        //   2. Izračunava pSpam
+        //   3. Primjenjuje pragove za odluku
+        //   4. Kreira Prediction zapis
+        //   5. Ažurira Message status
+        //
+        var scoringResult = await _scoringService.ScoreMessageAsync(message, ct);
 
         ct.ThrowIfCancellationRequested();
 
-        // Mapiraj u tick result (Web sloj samo emituje SignalR event)
+        // Mapiraj u tick result (Web sloj emituje SignalR event)
         return new ScoringTickResult
         {
             MessageId = scoringResult.MessageId,
@@ -86,20 +105,8 @@ public class ScoringAgentRunner
     /// <summary>
     /// Provjerava da li je agent spreman za rad (ima aktivni model).
     /// </summary>
-    public async Task<bool> IsReadyAsync(CancellationToken ct = default)
-    {
-        ct.ThrowIfCancellationRequested();
-        return await _scoringService.IsReadyAsync();
-    }
-
-    /// <summary>
-    /// Provjerava da li ima poruka za procesiranje.
-    /// </summary>
-    public async Task<bool> HasWorkAsync(CancellationToken ct = default)
-    {
-        ct.ThrowIfCancellationRequested();
-        return await _queueService.GetQueueCountAsync() > 0;
-    }
+    public Task<bool> IsReadyAsync(CancellationToken ct = default)
+        => _scoringService.IsReadyAsync(ct);
 }
 
 // ════════════════════════════════════════════════════════════════════════════════

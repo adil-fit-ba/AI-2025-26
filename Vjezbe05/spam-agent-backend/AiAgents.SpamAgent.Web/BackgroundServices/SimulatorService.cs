@@ -6,11 +6,11 @@
  * Simulira dolazak novih poruka u queue.
  * Korisno za demo bez frontend-a - samo gledaš kako agent procesira.
  * 
- * Pattern: Scope per iteration (bitno za EF Core!)
+ * NAPOMENA: Koristi EnqueueFromValidationWithResultAsync koji vraća
+ * baš poruke koje je enqueue-ovao (bez dodatnog query-a po Status==Queued).
  */
 
 using System;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
@@ -18,9 +18,6 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Configuration;
 using Microsoft.AspNetCore.SignalR;
-using Microsoft.EntityFrameworkCore;
-using AiAgents.SpamAgent.Domain;
-using AiAgents.SpamAgent.Infrastructure;
 using AiAgents.SpamAgent.Application.Services;
 using AiAgents.SpamAgent.Web.Hubs;
 using AiAgents.SpamAgent.Web.Models;
@@ -106,30 +103,25 @@ public class SimulatorService : BackgroundService
         CancellationToken ct)
     {
         var queueService = serviceProvider.GetRequiredService<QueueService>();
-        var context = serviceProvider.GetRequiredService<SpamAgentDbContext>();
 
-        var enqueued = await queueService.EnqueueFromValidationAsync(count, copyAsTrueLabel: true);
+        // Koristi novu metodu koja vraća DTO-e za baš enqueue-ovane poruke
+        var enqueuedMessages = await queueService.EnqueueFromValidationWithResultAsync(
+            count, 
+            copyAsTrueLabel: true, 
+            ct);
 
-        if (enqueued > 0)
+        if (enqueuedMessages.Count > 0)
         {
-            _logger.LogDebug("Simulator: dodano {Count} poruka u queue", enqueued);
+            _logger.LogDebug("Simulator: dodano {Count} poruka u queue", enqueuedMessages.Count);
 
-            // Dohvati upravo dodane poruke za SignalR event
-            var recentMessages = await context.Messages
-                .Where(m => m.Status == MessageStatus.Queued)
-                .OrderByDescending(m => m.CreatedAtUtc)
-                .Take(enqueued)
-                .ToListAsync(ct);
-
-            foreach (var msg in recentMessages)
+            // Emituj SignalR event za svaku poruku koju smo stvarno dodali
+            foreach (var msg in enqueuedMessages)
             {
                 var evt = new MessageQueuedEvent
                 {
                     MessageId = msg.Id,
-                    Text = msg.Text.Length > 50 
-                        ? msg.Text.Substring(0, 50) + "..." 
-                        : msg.Text,
-                    Timestamp = DateTime.UtcNow
+                    Text = msg.TextPreview,
+                    Timestamp = msg.CreatedAtUtc
                 };
 
                 await _hubContext.SendMessageQueued(evt);
